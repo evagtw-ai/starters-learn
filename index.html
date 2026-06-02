@@ -147,8 +147,6 @@
         let gameMode = "";
         let currentChapter = "";
         let isChoiceGame = true;
-
-        // ✅ 不重复出题核心
         let remainingPool = [];
 
         function showHome() {
@@ -202,7 +200,6 @@
             document.getElementById("screen-chapters").style.display = "block";
         }
 
-        // ✅ 初始化不重复题库
         function initPool() {
             let base = [];
             if (isChoiceGame) {
@@ -212,8 +209,8 @@
             } else {
                 if (gameMode === "all") base = [...allSpellWords];
                 else if (gameMode === "chapter") base = [...(SPELL_BANKS[currentChapter] || [])];
+                else if(gameMode === "error") base = [...errorWords.filter(w=>!w.includes(" "))];
             }
-            // 打乱顺序
             remainingPool = base.sort(() => Math.random() - 0.5);
         }
 
@@ -242,15 +239,11 @@
                 showHome();
                 return;
             }
-
-            // ✅ 从不重复池子里取题
             currentWord = remainingPool.shift();
-
             userInput = [];
             document.getElementById("game-img").src = getImageSrc(currentWord);
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-game").style.display = "block";
-
             if (isChoiceGame) renderChoice();
             else renderSpell();
         }
@@ -259,15 +252,13 @@
             document.getElementById("word-display").style.display = "none";
             document.getElementById("letters").style.display = "none";
             document.getElementById("submit-btn").style.display = "none";
-
-            let pool = isChoiceGame ? allWords : allSpellWords;
+            let pool = allWords;
             let opts = [currentWord];
             while (opts.length < 4) {
                 let w = pool[Math.floor(Math.random() * pool.length)];
                 if (!opts.includes(w)) opts.push(w);
             }
             opts.sort(() => Math.random() - 0.5);
-
             let box = document.getElementById("options");
             box.innerHTML = "";
             opts.forEach(o => {
@@ -283,15 +274,22 @@
             if (sel === currentWord) {
                 alert("✅ 正确！");
                 score++;
-                let i = errorWords.indexOf(currentWord);
-                if (i > -1) errorWords.splice(i, 1);
-                saveErrors();
+                //错题模式答对：从错题本删除
+                if(gameMode === "error"){
+                    let idx = errorWords.indexOf(currentWord);
+                    if(idx>-1){
+                        errorWords.splice(idx,1);
+                        saveErrors();
+                    }
+                }
             } else {
                 alert("❌ 错误，正确：" + currentWord);
-                if (!errorWords.includes(currentWord)) {
+                //普通刷题答错：不存在才加入错题，去重
+                if(gameMode !== "error" && !errorWords.includes(currentWord)){
                     errorWords.push(currentWord);
                     saveErrors();
                 }
+                //错题模式答错：不修改错题本，继续保留
             }
             nextQuestion();
         }
@@ -309,16 +307,13 @@
             document.getElementById("word-display").style.display = "block";
             document.getElementById("letters").style.display = "flex";
             document.getElementById("submit-btn").style.display = "block";
-
             userInput = [];
             let chars = currentWord.split("");
             let shuffled = [...chars];
             shuffled.sort(() => Math.random() - 0.5);
-
             updateWordDisplay();
             let letterBox = document.getElementById("letters");
             letterBox.innerHTML = "";
-
             shuffled.forEach(c => {
                 let btn = document.createElement("button");
                 btn.className = "letter-btn";
@@ -346,10 +341,23 @@
             if (userInput.join("") === currentWord) {
                 alert("✅ 拼写正确！");
                 score++;
-                nextQuestion();
+                //错题复习答对移除错题
+                if(gameMode === "error"){
+                    let idx = errorWords.indexOf(currentWord);
+                    if(idx>-1){
+                        errorWords.splice(idx,1);
+                        saveErrors();
+                    }
+                }
             } else {
                 alert("❌ 错误，正确：" + currentWord);
+                //普通模式答错去重存入错题
+                if(gameMode !== "error" && !errorWords.includes(currentWord)){
+                    errorWords.push(currentWord);
+                    saveErrors();
+                }
             }
+            nextQuestion();
         }
 
         showHome();
