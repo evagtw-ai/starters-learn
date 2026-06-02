@@ -121,7 +121,6 @@
     </div>
 
     <script>
-        // ================== 词库 ==================
         const WORD_BANKS = {
             "My body": ["face","eye","mouth","nose","ear","head","hair","leg","arm","hand","feet","foot"],
             "At the zoo": ["frog","mouse","sheep","tiger","duck","monkey","bird","cow","chicken","horse","lizard","goat","dog","hippo","giraffe","snake","crocodile","elephant","spider","zebra"],
@@ -134,7 +133,6 @@
             "My street": ["run","train","bookshop","shop","tree","park","motorbike","lorry","truck","bus","helicopter","bike","car","plane","stop"]
         };
 
-        // 拼写只保留单个单词
         const SPELL_BANKS = {};
         for (let ch in WORD_BANKS) {
             SPELL_BANKS[ch] = WORD_BANKS[ch].filter(w => w.trim().split(" ").length === 1);
@@ -150,7 +148,9 @@
         let currentChapter = "";
         let isChoiceGame = true;
 
-        // ================== 工具 ==================
+        // ✅ 不重复出题核心
+        let remainingPool = [];
+
         function showHome() {
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-home").style.display = "block";
@@ -177,7 +177,6 @@
             localStorage.setItem("errors", JSON.stringify(errorWords));
         }
 
-        // ================== 章节选择 ==================
         function showChoiceChapters() {
             renderChapters("choice");
         }
@@ -203,11 +202,26 @@
             document.getElementById("screen-chapters").style.display = "block";
         }
 
-        // ================== 看图选词 ==================
+        // ✅ 初始化不重复题库
+        function initPool() {
+            let base = [];
+            if (isChoiceGame) {
+                if (gameMode === "all") base = [...allWords];
+                else if (gameMode === "chapter") base = [...WORD_BANKS[currentChapter]];
+                else if (gameMode === "error") base = [...errorWords];
+            } else {
+                if (gameMode === "all") base = [...allSpellWords];
+                else if (gameMode === "chapter") base = [...(SPELL_BANKS[currentChapter] || [])];
+            }
+            // 打乱顺序
+            remainingPool = base.sort(() => Math.random() - 0.5);
+        }
+
         function startChoice(mode, chapter = null) {
             gameMode = mode;
             currentChapter = chapter;
             isChoiceGame = true;
+            initPool();
             nextQuestion();
         }
 
@@ -218,45 +232,35 @@
             }
             gameMode = "error";
             isChoiceGame = true;
+            initPool();
             nextQuestion();
         }
 
         function nextQuestion() {
-            userInput = [];
-            let pool = [];
-
-            if (isChoiceGame) {
-                if (gameMode === "all") pool = allWords;
-                else if (gameMode === "chapter") pool = WORD_BANKS[currentChapter];
-                else if (gameMode === "error") pool = errorWords;
-            } else {
-                if (gameMode === "all") pool = allSpellWords;
-                else if (gameMode === "chapter") pool = SPELL_BANKS[currentChapter] || [];
-            }
-
-            if (pool.length === 0) {
-                alert("暂无题目");
+            if (remainingPool.length === 0) {
+                alert("🎉 本轮所有题目已完成！返回主页可重新开始。");
                 showHome();
                 return;
             }
 
-            currentWord = pool[Math.floor(Math.random() * pool.length)];
+            // ✅ 从不重复池子里取题
+            currentWord = remainingPool.shift();
+
+            userInput = [];
             document.getElementById("game-img").src = getImageSrc(currentWord);
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-game").style.display = "block";
 
-            if (isChoiceGame) {
-                renderChoice(pool);
-            } else {
-                renderSpell();
-            }
+            if (isChoiceGame) renderChoice();
+            else renderSpell();
         }
 
-        function renderChoice(pool) {
+        function renderChoice() {
             document.getElementById("word-display").style.display = "none";
             document.getElementById("letters").style.display = "none";
             document.getElementById("submit-btn").style.display = "none";
 
+            let pool = isChoiceGame ? allWords : allSpellWords;
             let opts = [currentWord];
             while (opts.length < 4) {
                 let w = pool[Math.floor(Math.random() * pool.length)];
@@ -292,11 +296,11 @@
             nextQuestion();
         }
 
-        // ================== 看图拼词 ==================
         function startSpell(mode, chapter = null) {
             gameMode = mode;
             currentChapter = chapter;
             isChoiceGame = false;
+            initPool();
             nextQuestion();
         }
 
@@ -348,7 +352,6 @@
             }
         }
 
-        // 初始化
         showHome();
     </script>
 </body>
