@@ -53,6 +53,7 @@
             font-size: 24px;
             letter-spacing: 4px;
             margin: 15px 0;
+            min-height: 30px;
         }
         .letter-buttons {
             display: flex;
@@ -60,6 +61,7 @@
             justify-content: center;
             gap: 8px;
             margin: 10px 0;
+            min-height: 44px; /* 避免字母清空時高度塌陷 */
         }
         .letter-btn {
             width: 44px;
@@ -69,6 +71,10 @@
             border: none;
             border-radius: 8px;
             cursor: pointer;
+            font-weight: bold;
+        }
+        .letter-btn:active {
+            transform: scale(0.9);
         }
         .back-home {
             background: #999;
@@ -76,6 +82,20 @@
         }
         .chapter-list {
             text-align: left;
+        }
+        
+        /* 新增：拼寫模式的控制按鈕區域 */
+        .spell-controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .spell-controls .btn {
+            margin: 0;
+            flex: 1; /* 按鈕平分寬度 */
+            padding: 12px 0;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -113,9 +133,17 @@
             <div class="img-box"><img id="game-img" src=""></div>
             <div id="word-display" class="word-display"></div>
             <div id="options"></div>
+            
+            <!-- 拼寫專用的字母池與控制按鈕 -->
             <div id="letters" class="letter-buttons"></div>
-            <button class="btn" id="submit-btn" style="display:none" onclick="checkSpell()">✅ 提交</button>
-            <button class="btn" onclick="nextQuestion()">🔄 下一题</button>
+            <div id="spell-controls" class="spell-controls" style="display:none">
+                <button class="btn" style="background:#ffb344" onclick="undoSpell()">↩️ 删除</button>
+                <button class="btn" style="background:#ff7777" onclick="clearSpell()">🗑️ 清空</button>
+                <button class="btn" style="background:#62d474" onclick="checkSpell()">✅ 确定</button>
+            </div>
+            
+            <!-- 選詞專用的下一題按鈕 -->
+            <button class="btn" id="next-btn" onclick="nextQuestion()">🔄 下一题</button>
             <button class="btn back-home" onclick="showHome()">🏠 返回</button>
         </div>
     </div>
@@ -143,6 +171,7 @@
         let score = 0;
         let currentWord = "";
         let userInput = [];
+        let spellShuffleLetters = []; // 紀錄本題固定的亂序字母
         let errorWords = JSON.parse(localStorage.getItem("errors") || "[]");
         let gameMode = "";
         let currentChapter = "";
@@ -241,9 +270,16 @@
             }
             currentWord = remainingPool.shift();
             userInput = [];
+            
+            // 如果是拼寫模式，在此處生成並鎖定亂序字母
+            if (!isChoiceGame) {
+                spellShuffleLetters = currentWord.split("").sort(() => Math.random() - 0.5);
+            }
+
             document.getElementById("game-img").src = getImageSrc(currentWord);
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-game").style.display = "block";
+            
             if (isChoiceGame) renderChoice();
             else renderSpell();
         }
@@ -251,7 +287,9 @@
         function renderChoice() {
             document.getElementById("word-display").style.display = "none";
             document.getElementById("letters").style.display = "none";
-            document.getElementById("submit-btn").style.display = "none";
+            document.getElementById("spell-controls").style.display = "none";
+            document.getElementById("next-btn").style.display = "block"; // 顯示選詞專用的下一題
+            
             let pool = allWords;
             let opts = [currentWord];
             while (opts.length < 4) {
@@ -259,22 +297,22 @@
                 if (!opts.includes(w)) opts.push(w);
             }
             opts.sort(() => Math.random() - 0.5);
+            
             let box = document.getElementById("options");
             box.innerHTML = "";
             opts.forEach(o => {
                 let b = document.createElement("button");
                 b.className = "btn";
                 b.innerText = o;
-                b.onclick = () => checkAnswer(o);
+                b.onclick = () => checkChoiceAnswer(o);
                 box.appendChild(b);
             });
         }
 
-        function checkAnswer(sel) {
+        function checkChoiceAnswer(sel) {
             if (sel === currentWord) {
                 alert("✅ 正确！");
                 score++;
-                //错题模式答对：从错题本删除
                 if(gameMode === "error"){
                     let idx = errorWords.indexOf(currentWord);
                     if(idx>-1){
@@ -284,12 +322,10 @@
                 }
             } else {
                 alert("❌ 错误，正确：" + currentWord);
-                //普通刷题答错：不存在才加入错题，去重
                 if(gameMode !== "error" && !errorWords.includes(currentWord)){
                     errorWords.push(currentWord);
                     saveErrors();
                 }
-                //错题模式答错：不修改错题本，继续保留
             }
             nextQuestion();
         }
@@ -306,22 +342,33 @@
             document.getElementById("options").innerHTML = "";
             document.getElementById("word-display").style.display = "block";
             document.getElementById("letters").style.display = "flex";
-            document.getElementById("submit-btn").style.display = "block";
-            userInput = [];
-            let chars = currentWord.split("");
-            let shuffled = [...chars];
-            shuffled.sort(() => Math.random() - 0.5);
+            document.getElementById("spell-controls").style.display = "flex"; // 顯示拼寫控制按鈕
+            document.getElementById("next-btn").style.display = "none";     // 隱藏預設下一題按鈕
+            
             updateWordDisplay();
+            
+            // 核心邏輯：計算下方候選池還要顯示哪些字母
+            let tempUsed = [...userInput];
+            let remainLetters = [];
+            spellShuffleLetters.forEach(ch => {
+                let idx = tempUsed.indexOf(ch);
+                if (idx === -1) {
+                    remainLetters.push(ch); // 尚未被點擊的字母
+                } else {
+                    tempUsed.splice(idx, 1); // 已經上移的字母予以扣除
+                }
+            });
+
             let letterBox = document.getElementById("letters");
             letterBox.innerHTML = "";
-            shuffled.forEach(c => {
+            remainLetters.forEach(c => {
                 let btn = document.createElement("button");
                 btn.className = "letter-btn";
                 btn.innerText = c;
                 btn.onclick = () => {
                     if (userInput.length < currentWord.length) {
                         userInput.push(c);
-                        updateWordDisplay();
+                        renderSpell(); // 點擊後重新計算畫面
                     }
                 };
                 letterBox.appendChild(btn);
@@ -337,11 +384,25 @@
             display.innerText = txt.join("  ");
         }
 
+        // 刪除最後一個字母
+        function undoSpell() {
+            if (userInput.length > 0) {
+                userInput.pop();
+                renderSpell();
+            }
+        }
+
+        // 清空所有已填寫字母
+        function clearSpell() {
+            userInput = [];
+            renderSpell();
+        }
+
+        // 確定拼寫答案
         function checkSpell() {
             if (userInput.join("") === currentWord) {
                 alert("✅ 拼写正确！");
                 score++;
-                //错题复习答对移除错题
                 if(gameMode === "error"){
                     let idx = errorWords.indexOf(currentWord);
                     if(idx>-1){
@@ -349,15 +410,16 @@
                         saveErrors();
                     }
                 }
+                nextQuestion();
             } else {
                 alert("❌ 错误，正确：" + currentWord);
-                //普通模式答错去重存入错题
                 if(gameMode !== "error" && !errorWords.includes(currentWord)){
                     errorWords.push(currentWord);
                     saveErrors();
                 }
+                // 答錯後直接跳入下一題，維持原本的刷題節奏
+                nextQuestion();
             }
-            nextQuestion();
         }
 
         showHome();
