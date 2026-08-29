@@ -84,7 +84,7 @@
             text-align: left;
         }
         
-        /* 新增：拼寫模式的控制按鈕區域 */
+        /* 拼寫模式的控制按鈕區域 */
         .spell-controls {
             display: flex;
             justify-content: center;
@@ -97,9 +97,29 @@
             padding: 12px 0;
             font-weight: bold;
         }
+
+        /* 升級版提示框，避免傳統 alert 阻擋語音播放 */
+        .toast {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            font-size: 24px;
+            z-index: 9999;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body>
+    <!-- 提示框 -->
+    <div id="toast" class="toast"></div>
+
     <div class="container" id="app">
         <div id="screen-home">
             <h1>🌟 Starters 看图学习</h1>
@@ -178,6 +198,28 @@
         let isChoiceGame = true;
         let remainingPool = [];
 
+        // ========== 新增：語音播放功能 ==========
+        function playVoice(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                let msg = new SpeechSynthesisUtterance(text);
+                msg.lang = 'zh-CN'; // 使用標準中文發音
+                msg.rate = 1.0;
+                window.speechSynthesis.speak(msg);
+            }
+        }
+
+        // ========== 新增：精美提示框功能 ==========
+        function showToast(msg, duration = 1500, callback = null) {
+            let t = document.getElementById("toast");
+            t.innerText = msg;
+            t.style.display = "block";
+            setTimeout(() => {
+                t.style.display = "none";
+                if(callback) callback();
+            }, duration);
+        }
+
         function showHome() {
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-home").style.display = "block";
@@ -253,7 +295,7 @@
 
         function startErrorReview() {
             if (errorWords.length === 0) {
-                alert("错题本为空！");
+                showToast("错题本为空！");
                 return;
             }
             gameMode = "error";
@@ -309,25 +351,30 @@
             });
         }
 
+        // ========== 選詞判斷邏輯 ==========
         function checkChoiceAnswer(sel) {
             if (sel === currentWord) {
-                alert("✅ 正确！");
-                score++;
-                if(gameMode === "error"){
-                    let idx = errorWords.indexOf(currentWord);
-                    if(idx>-1){
-                        errorWords.splice(idx,1);
-                        saveErrors();
+                playVoice("答对了");
+                showToast("✅ 正确！", 1200, () => {
+                    score++;
+                    if(gameMode === "error"){
+                        let idx = errorWords.indexOf(currentWord);
+                        if(idx>-1){
+                            errorWords.splice(idx,1);
+                            saveErrors();
+                        }
                     }
-                }
+                    nextQuestion();
+                });
             } else {
-                alert("❌ 错误，正确：" + currentWord);
+                playVoice("再试一次");
+                showToast("❌ 错误，再试一次！", 1500);
                 if(gameMode !== "error" && !errorWords.includes(currentWord)){
                     errorWords.push(currentWord);
                     saveErrors();
                 }
+                // 答錯留在原題，不觸發 nextQuestion()
             }
-            nextQuestion();
         }
 
         function startSpell(mode, chapter = null) {
@@ -347,7 +394,7 @@
             
             updateWordDisplay();
             
-            // 核心邏輯：計算下方候選池還要顯示哪些字母
+            // 計算下方候選池還要顯示哪些字母
             let tempUsed = [...userInput];
             let remainLetters = [];
             spellShuffleLetters.forEach(ch => {
@@ -398,27 +445,30 @@
             renderSpell();
         }
 
-        // 確定拼寫答案
+        // ========== 拼寫判斷邏輯 ==========
         function checkSpell() {
             if (userInput.join("") === currentWord) {
-                alert("✅ 拼写正确！");
-                score++;
-                if(gameMode === "error"){
-                    let idx = errorWords.indexOf(currentWord);
-                    if(idx>-1){
-                        errorWords.splice(idx,1);
-                        saveErrors();
+                playVoice("答对了");
+                showToast("✅ 拼写正确！", 1200, () => {
+                    score++;
+                    if(gameMode === "error"){
+                        let idx = errorWords.indexOf(currentWord);
+                        if(idx>-1){
+                            errorWords.splice(idx,1);
+                            saveErrors();
+                        }
                     }
-                }
-                nextQuestion();
+                    nextQuestion();
+                });
             } else {
-                alert("❌ 错误，正确：" + currentWord);
+                playVoice("再试一次");
+                showToast("❌ 拼写错误，再试一次！", 1500);
                 if(gameMode !== "error" && !errorWords.includes(currentWord)){
                     errorWords.push(currentWord);
                     saveErrors();
                 }
-                // 答錯後直接跳入下一題，維持原本的刷題節奏
-                nextQuestion();
+                // 答錯清空輸入框，讓小朋友重新拼寫
+                clearSpell();
             }
         }
 
