@@ -57,7 +57,6 @@
         .img-box img:active {
             transform: scale(0.95);
         }
-        /* 提示點擊發音的小喇叭圖標 */
         .voice-hint {
             position: absolute;
             bottom: 10px;
@@ -164,7 +163,6 @@
         </div>
 
         <div id="screen-game" style="display:none">
-            <!-- 加入點擊發音功能與提示圖標 -->
             <div class="img-box" onclick="playEnVoice(currentWord)" title="点击听发音">
                 <img id="game-img" src="">
                 <div class="voice-hint">🔊</div>
@@ -214,8 +212,11 @@
         let currentChapter = "";
         let isChoiceGame = true;
         let remainingPool = [];
+        
+        // 記錄當前題目的錯誤次數
+        let wrongCount = 0;
 
-        // ========== 語音播放系統 (完美繼承早前專案) ==========
+        // ========== 語音播放系統 ==========
         let globalVoiceList = [];
         window.speechSynthesis.onvoiceschanged = function () {
             globalVoiceList = window.speechSynthesis.getVoices();
@@ -242,8 +243,36 @@
             if (cantoneseVoice) utter.voice = cantoneseVoice;
             window.speechSynthesis.speak(utter);
         }
-        // =====================================================
 
+        function playCorrectAnswerVoice(answerStr, isSpell) {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+
+            const prefixUtter = new SpeechSynthesisUtterance("正確答案：");
+            prefixUtter.lang = "zh-HK";
+            prefixUtter.rate = 0.95;
+            const cantoneseVoice = globalVoiceList.find(v => v.lang.startsWith("zh-HK"));
+            if (cantoneseVoice) prefixUtter.voice = cantoneseVoice;
+
+            prefixUtter.onend = () => {
+                let answerUtterText = answerStr;
+                // 拼寫模式將字母拆開念 (例如: h, a, n, d)
+                if (isSpell) {
+                    answerUtterText = answerStr.split('').join(', ');
+                }
+
+                const answerUtter = new SpeechSynthesisUtterance(answerUtterText);
+                answerUtter.lang = "en-GB";
+                answerUtter.rate = isSpell ? 0.65 : 0.8; // 拼寫放慢速度
+                const targetVoice = globalVoiceList.find(v => v.lang.startsWith("en-GB"));
+                if (targetVoice) answerUtter.voice = targetVoice;
+
+                window.speechSynthesis.speak(answerUtter);
+            };
+            window.speechSynthesis.speak(prefixUtter);
+        }
+
+        // ========== 彈窗與畫面控制 ==========
         function showToast(msg, duration = 1500, callback = null) {
             let t = document.getElementById("toast");
             t.innerText = msg;
@@ -252,6 +281,43 @@
                 t.style.display = "none";
                 if(callback) callback();
             }, duration);
+        }
+
+        function showAnswerModal(answer, nextFunc) {
+            const modal = document.createElement("div");
+            modal.style.position = "fixed";
+            modal.style.left = "0"; modal.style.top = "0";
+            modal.style.width = "100vw"; modal.style.height = "100vh";
+            modal.style.background = "rgba(0,0,0,0.5)";
+            modal.style.display = "flex"; modal.style.justifyContent = "center"; modal.style.alignItems = "center";
+            modal.style.zIndex = "9999";
+
+            const box = document.createElement("div");
+            box.style.background = "#fffef8";
+            box.style.padding = "40px 25px";
+            box.style.borderRadius = "24px";
+            box.style.textAlign = "center";
+            box.style.boxShadow = "0 5px 20px rgba(0,0,0,0.1)";
+
+            const text = document.createElement("p");
+            text.style.fontSize = "28px";
+            text.style.color = "#f03030";
+            text.style.fontWeight = "bold";
+            text.innerText = `正确答案：${answer}`;
+
+            const confirmBtn = document.createElement("button");
+            confirmBtn.className = "btn";
+            confirmBtn.style.background = "#62d474";
+            confirmBtn.style.maxWidth = "200px";
+            confirmBtn.style.margin = "20px auto 0";
+            confirmBtn.innerText = "确认";
+            confirmBtn.onclick = () => {
+                document.body.removeChild(modal);
+                nextFunc();
+            };
+
+            box.appendChild(text); box.appendChild(confirmBtn);
+            modal.appendChild(box); document.body.appendChild(modal);
         }
 
         function showHome() {
@@ -334,6 +400,7 @@
             }
             currentWord = remainingPool.shift();
             userInput = [];
+            wrongCount = 0; // 重置該題錯誤次數
             
             if (!isChoiceGame) {
                 spellShuffleLetters = currentWord.split("").sort(() => Math.random() - 0.5);
@@ -343,7 +410,6 @@
             document.querySelectorAll("#app > div").forEach(s => s.style.display = "none");
             document.getElementById("screen-game").style.display = "block";
             
-            // 自動播放一次英文單詞發音 (幫助學習)
             playEnVoice(currentWord);
 
             if (isChoiceGame) renderChoice();
@@ -375,9 +441,10 @@
             });
         }
 
+        // ========== 選詞判斷邏輯 (最多2次) ==========
         function checkChoiceAnswer(sel) {
             if (sel === currentWord) {
-                playFeedbackVoice(true); // 你真叻！
+                playFeedbackVoice(true); 
                 showToast("✅ 正确！", 1200, () => {
                     score++;
                     if(gameMode === "error"){
@@ -390,11 +457,23 @@
                     nextQuestion();
                 });
             } else {
-                playFeedbackVoice(false); // 再試一次吧！
-                showToast("❌ 错误，再试一次！", 1500);
-                if(gameMode !== "error" && !errorWords.includes(currentWord)){
-                    errorWords.push(currentWord);
-                    saveErrors();
+                wrongCount++;
+                if (wrongCount >= 2) {
+                    if(gameMode !== "error" && !errorWords.includes(currentWord)){
+                        errorWords.push(currentWord);
+                        saveErrors();
+                    }
+                    playCorrectAnswerVoice(currentWord, false);
+                    showAnswerModal(currentWord, () => {
+                        nextQuestion();
+                    });
+                } else {
+                    playFeedbackVoice(false);
+                    showToast("❌ 错误，再试一次！", 1500);
+                    if(gameMode !== "error" && !errorWords.includes(currentWord)){
+                        errorWords.push(currentWord);
+                        saveErrors();
+                    }
                 }
             }
         }
@@ -461,9 +540,10 @@
             renderSpell();
         }
 
+        // ========== 拼寫判斷邏輯 (最多2次) ==========
         function checkSpell() {
             if (userInput.join("") === currentWord) {
-                playFeedbackVoice(true); // 你真叻！
+                playFeedbackVoice(true); 
                 showToast("✅ 拼写正确！", 1200, () => {
                     score++;
                     if(gameMode === "error"){
@@ -476,13 +556,25 @@
                     nextQuestion();
                 });
             } else {
-                playFeedbackVoice(false); // 再試一次吧！
-                showToast("❌ 拼写错误，再试一次！", 1500);
-                if(gameMode !== "error" && !errorWords.includes(currentWord)){
-                    errorWords.push(currentWord);
-                    saveErrors();
+                wrongCount++;
+                if (wrongCount >= 2) {
+                    if(gameMode !== "error" && !errorWords.includes(currentWord)){
+                        errorWords.push(currentWord);
+                        saveErrors();
+                    }
+                    playCorrectAnswerVoice(currentWord, true);
+                    showAnswerModal(currentWord, () => {
+                        nextQuestion();
+                    });
+                } else {
+                    playFeedbackVoice(false); 
+                    showToast("❌ 拼写错误，再试一次！", 1500);
+                    if(gameMode !== "error" && !errorWords.includes(currentWord)){
+                        errorWords.push(currentWord);
+                        saveErrors();
+                    }
+                    clearSpell(); 
                 }
-                clearSpell(); // 答錯清空讓小朋友重新嘗試
             }
         }
 
